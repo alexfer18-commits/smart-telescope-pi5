@@ -88,6 +88,89 @@ La abrazadera y la escuadra llevan esfuerzo sostenido: **no las imprimas en
 PLA**. El PLA fluye bajo carga constante y a 40 °C al sol una abrazadera de PLA
 pierde el apriete en una tarde.
 
+### 1.4 Los dos NEMA 17 — asignación y par
+
+Los dos motores en posesión son el mismo modelo (17HS4401) y **cada uno tiene un
+eje y un driver asignados**. No son intercambiables una vez montados: el acople
+se ajusta a la cara plana limada de cada eje.
+
+| | Motor | Eje | Movimiento | Driver | GPIO (BCM) |
+|---|---|---|---|---|---|
+| **#1** | NEMA 17 17HS4401 | Azimut, vertical, dentro de la torre | Giro horizontal del conjunto (tubo + horquilla) | A4988 «AZ» | STEP 17 · DIR 27 · EN 22 |
+| **#2** | NEMA 17 17HS4401 | Altitud, horizontal, en la mejilla +X | Giro vertical del tubo sobre el saddle | A4988 «ALT» | STEP 23 · DIR 24 · EN 25 |
+
+```
+              ESQUEMA DE LOS DOS EJES (no a escala)
+
+                          tubo Ø60
+                             │
+                             ▼
+             ┌───────────────────────────────┐
+             │  saddle + abrazadera Ø60      │
+             └───────────────┬───────────────┘
+                             │
+                   ┌─────────┴─────────┐
+                   │  EJE ALTITUD Ø8   │◄─── acople ───[M2] NEMA 17 #2
+                   └─────────┬─────────┘                horizontal, en la
+                             │                          mejilla +X: gira
+                             │                          el tubo arriba/abajo
+                   ┌─────────┴─────────┐
+                   │    plato Ø150     │
+                   └─────────┬─────────┘
+                             │
+                   ┌─────────┴─────────┐
+                   │  EJE AZIMUT       │◄─── acople ───[M1] NEMA 17 #1
+                   │  (vertical)       │                vertical, dentro de
+                   └─────────┬─────────┘                la torre: gira todo
+                             │                          el conjunto
+                   ┌─────────┴─────────┐
+                   │  base 200 × 200   │
+                   └───────────────────┘
+```
+
+```
+   VISTA SUPERIOR — dónde cae cada motor (x = 0 es el eje azimut)
+
+        −X                                              +X
+   ┌──────────┬──────────────┬─────────────┬──────────────┬────────────┐
+   │ mejilla  │    tubo      │  eje azimut │    tubo      │  mejilla   │
+   │   −X     │    Ø60       │   (x = 0)   │    Ø60       │  +X  [M2]  │
+   └──────────┴──────────────┴──────┬──────┴──────────────┴────────────┘
+                                    │                     eje altitud
+                              [M1] en la torre,          (horizontal,
+                              coaxial con el eje        sale por la
+                              azimut (x = y = 0)        mejilla +X)
+```
+
+**Comprobación de par, eje por eje.** Los dos motores dan 40 N·cm (0.40 N·m) de
+par de retención a 1.7 A; a los 1.2 A que admite el A4988 quedan ~0.28 N·m. El
+detalle de los cálculos está en `docs/mechanical_analysis.md` §1.
+
+| Eje | Carga que ve el motor | Par requerido | Par disponible (1.2 A) | Margen |
+|---|---|---|---|---|
+| **Azimut (#1)** | Sin gravedad en contra: el eje es vertical, la gravedad es paralela a él. Solo vence fricción del anillo de empuje e inercia del plato y la horquilla | ≈ 0.045 N·m | 0.28 N·m | **6.2×** |
+| **Altitud (#2)** | Gravedad en contra, pero el par depende del brazo: con el tubo equilibrado sobre el eje, el brazo es cero | ≈ 0.045 N·m | 0.28 N·m | **6.2×** |
+| Altitud, tubo **desequilibrado** 20 cm | 2.5 kg × 9.81 × 0.20 m | **4.91 N·m** | 0.28 N·m | **0.06× → no alcanza** |
+
+De ahí las dos conclusiones que gobiernan el montaje:
+
+- **El eje de azimut no necesita nada especial.** Es el eje barato: gira sobre
+  un anillo de empuje, no sostiene peso contra la gravedad y el motor va 6×
+  sobrado. Por eso el motor #1 va dentro de la torre, donde no se ve y donde su
+  peso queda bajo el plato.
+- **El eje de altitud requiere equilibrio y, si el tubo no se puede deslizar,
+  contrapeso.** El motor #2 es el único que pelea con la gravedad: 20 cm de
+  brazo lo dejan 17× corto. El saddle permite deslizar el tubo hasta que el
+  centro de masas caiga sobre el eje (§5); si el ocular o el buscador impiden
+  llegar, se añaden ~150 g en la culata, que recuperan unos 15 mm de
+  desequilibrio. **Nunca se resuelve subiendo la corriente**: a 1.7 A el A4988 se
+  destruye y el par solo subiría un 40 %, muy lejos del 1 700 % que falta.
+
+Antes de montarlos, comprobar que son iguales (ver `hardware/BOM.md`, nota de los
+dos motores): misma etiqueta, y ~2.4 Ω por par de bobinas en los dos. Un motor
+distinto en un eje se manifiesta como tiempos de asentamiento desiguales y un
+lazo sintonizado para un eje que sobreoscila en el otro.
+
 ---
 
 ## 2. Orden de ensamblaje (de lo simple a lo complejo)
@@ -97,12 +180,12 @@ pierde el apriete en una tarde.
 Esto se hace **con el motor desconectado**. Ver §4.1. Si el Vref viene de
 fábrica en 1.5 V, conectar el motor lo sobrecalienta en minutos.
 
-### Paso 2 — Eje azimutal (`az_axis_assembly.scad`)
+### Paso 2 — Eje azimutal, motor **#1** (`az_axis_assembly.scad`)
 
 1. Base 200 × 200 × 6 sobre la mesa, cara buena arriba.
 2. Torre 130 × 130 × 79: 4 × M4 desde abajo, tuercas dentro de la torre.
-3. Motor AZ dentro de la torre, brida hacia arriba, 4 × M3 en la cuadrícula
-   31 × 31. El eje debe sobresalir por el agujero de Ø26 del deck.
+3. Motor **#1** dentro de la torre, brida hacia arriba, 4 × M3 en la
+   cuadrícula 31 × 31. El eje debe sobresalir por el agujero de Ø26 del deck.
 4. Deck 150 × 150 × 6 sobre la torre, 4 × M4. Comprobar que el eje gira libre,
    sin rozar.
 5. Acople rígido de 22 mm sobre el eje del motor. **No aprietes el prisionero
@@ -116,7 +199,7 @@ fábrica en 1.5 V, conectar el motor lo sobrecalienta en minutos.
 10. Girar el plato a mano: debe dar una vuelta completa sin ruido y sin juego
     apreciable. Si roza, el cubo no está coaxial — afloja los postes y repite.
 
-### Paso 3 — Eje de altitud (`alt_axis_assembly.scad`)
+### Paso 3 — Eje de altitud, motor **#2** (`alt_axis_assembly.scad`)
 
 1. Dos pies 60 × 90 × 8 sobre el plato del azimut, 2 × M5 cada uno.
 2. Mejillas a x = ±72, 2 × M6 por mejilla a los pies.
@@ -125,7 +208,7 @@ fábrica en 1.5 V, conectar el motor lo sobrecalienta en minutos.
 4. Eje Ø8 a través de ambos rodamientos. Debe girar con dos dedos.
 5. Cubo del eje (70 × 100 × 34) centrado, prisionero M6 al eje. **Este es el
    prisionero que transmite todo el par de altitud**: 6 N·m, sobre cara plana.
-6. Motor ALT en la cara exterior de la mejilla +X, brida contra la mejilla,
+6. Motor **#2** en la cara exterior de la mejilla +X, brida contra la mejilla,
    4 × M3. Acople de 22 mm entre el eje del motor y el extremo del eje de 8 mm
    (con un adaptador 8→5 mm, o limando el eje a 5 mm en el tramo del acople).
 7. Saddle 76 × 100 × 26 sobre el cubo, 2 × M6.

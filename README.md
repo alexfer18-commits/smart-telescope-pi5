@@ -67,8 +67,8 @@ Compilation Constraint".
 | 50 mm guidescope, 200 mm FL | 1 | 55 |
 | INA219 shunt | 1 | 5 |
 
-**≈ $278 without the accelerator, ≈ $348 with it**; **$183 left to buy** ($253
-with the HAT), because the Pi 5 and one NEMA 17 are already owned.
+**≈ $278 without the accelerator, ≈ $348 with it**; **$168 left to buy** ($238
+with the HAT), because the Pi 5 and both NEMA 17 are already owned.
 `hardware/SHOPPING_LIST.md` sequences the order, `hardware/BOM.md` carries the
 supplier links, and the two corrections to the original sketch (the 12 V rail
 cannot feed the Pi; the guidescope is what makes the error measurable) are in

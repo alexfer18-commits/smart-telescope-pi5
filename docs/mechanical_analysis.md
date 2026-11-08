@@ -10,9 +10,19 @@ fórmula y sus supuestos para que se puedan refutar.
 | `m` | 2.5 kg | tubo 60 mm + cámara + saddle + abrazadera (rango 2–3 kg) |
 | `g` | 9.81 m/s² | — |
 | `r` | 0.20 m | brazo de palanca supuesto si el tubo NO está equilibrado |
-| `τ_motor` | 0.40 N·m | par de retención del 17HS4401 a 1.7 A (40 N·cm) |
+| `τ_motor` | 0.40 N·m | par de retención de **cada** 17HS4401 (los dos son idénticos) a 1.7 A = 40 N·cm |
 | `I_fase` | 1.20 A | ajuste recomendado del A4988 (Vref 0.96 V) |
 | `L_tubo` | 0.50 m | guidescope de 200 mm de focal con tubo de 500 mm |
+
+> Both axes use identical NEMA 17 motors. Azimuth axis has no gravity load
+> (horizontal rotation); altitude axis requires counterweight to balance the
+> tube.
+
+Las dos premisas anteriores son las que justifican que un solo modelo de motor
+sirva para los dos ejes, y explican por qué el presupuesto de par se gasta casi
+entero en altitud. Los cálculos de abajo valen para cualquiera de las dos
+unidades, porque son el mismo 17HS4401; si apareciera un motor distinto, el eje
+que lo lleve hay que recalcularlo.
 
 ---
 
@@ -266,6 +276,7 @@ importar.
 | Pregunta | Respuesta | Número |
 |---|---|---|
 | ¿El NEMA 17 mueve 2–3 kg con brazo de 20 cm? | **No** | déficit 12–17× |
+| ¿Sirve el mismo motor para los dos ejes? | Sí: azimut sin gravedad, altitud equilibrada | 6.2× en cada uno |
 | ¿Y con el tubo equilibrado? | **Sí, con margen** | 6.3× |
 | ¿Cuánto desequilibrio tolera en directa? | Poco | **±8 mm** |
 | ¿6.75 arcmin/step alcanza para 10 arcmin? | Marginal, no en la práctica | 67.5 % del presupuesto |
