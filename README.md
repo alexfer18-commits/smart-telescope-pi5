@@ -28,17 +28,25 @@ smart-telescope-pi5/
 │   ├── pid_controller.py        anti-windup, filtered derivative
 │   ├── mqtt_bridge.py           validated commands, TLS, no retained replay
 │   ├── dashboard.py             FastAPI + Plotly, token-gated
-│   └── tests/                   17 tests, no hardware required
+│   └── tests/                   26 tests; 6 need a running broker
 ├── ml-model/            detector export and quantization
 │   ├── quantize_int8.py         static INT8, calibration = angular error
 │   └── check_equivalence.py     FP32 vs INT8 in arcseconds
-├── benchmarks/          compare_inference.py → data/ + figures/
-├── experiments/         episode protocol (90 episodes) + JSON schema
+├── benchmarks/
+│   ├── compare_inference.py     synthetic harness → data/ + figures/
+│   └── run_real_measurements.py measured latency/energy on the Pi (no fallback)
+├── experiments/         protocol v2 + measurement plan + episode schema
 ├── mobile-app/          Expo console: connect, status, history
-├── docker/              mosquitto (TLS), dashboard, InfluxDB, Grafana
+├── docker/              mosquitto (TLS + ACLs), dashboard, InfluxDB, Grafana
 ├── docs/                architecture.md, security_report.md
-└── scripts/deploy.sh    certs, secrets, compose up
+└── scripts/             deploy.sh · gen_certs.sh · setup_mqtt_auth.sh
 ```
+
+**E2 needs hardware that is not the telescope.** The Hailo-8L executes a `.hef`
+compiled by the Dataflow Compiler, which only runs on x86_64 Linux. The Pi is an
+inference target, never a compiler target: the experiment requires a VM, a remote
+server, or a dedicated x86 machine. See `docs/architecture.md`, "Hailo-8L
+Compilation Constraint".
 
 ## Bill of materials
 
@@ -58,6 +66,10 @@ smart-telescope-pi5/
 corrections to the original sketch (the 12 V rail cannot feed the Pi; the
 guidescope is what makes the error measurable) are in `hardware/BOM.md`.
 
+The Hailo-8L line also implies a host that is not in this table: compiling the
+HEF needs an x86_64 Linux machine (VM, remote server, or workstation). Budget
+that separately — see `docs/architecture.md`.
+
 ## Install
 
 On the Pi (Raspberry Pi OS 64-bit, kernel 6.12):
@@ -68,7 +80,7 @@ git clone https://github.com/alexfer18-commits/smart-telescope-pi5
 cd smart-telescope-pi5
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r pi5-software/requirements.txt
-pytest                                   # 17 tests, no hardware needed
+pytest                                   # 26 tests; 6 need a running broker
 TELESCOPE_API_TOKEN=change-me uvicorn dashboard:app --host 0.0.0.0 --port 8443
 ```
 
@@ -84,7 +96,7 @@ python benchmarks/compare_inference.py --episodes 300
 Stack deployment (broker, dashboard, metrics):
 
 ```bash
-./scripts/deploy.sh        # generates .env, CA, server cert, MQTT password
+./scripts/deploy.sh        # generates .env, CA, server cert, MQTT identities
 ```
 
 ## Benchmark
@@ -109,13 +121,16 @@ marginal cost. H3 holds with a wide margin.
 Rerun on the Pi with a real model to replace every "synthetic" above:
 
 ```bash
-python benchmarks/compare_inference.py --model ml-model/mnv3_int8.onnx \
-    --runtime auto --episodes 300 --ina219
+python benchmarks/run_real_measurements.py --model ml-model/mnv3_int8.onnx \
+    --episodes 300 --ina219
 ```
 
-The JSON records `source` per backend and `energy_source` per row. Never quote a
-synthetic row as a measurement; the figure prints a red warning when any row is
-synthetic.
+That script writes `data/real_measurements.json` with `"source": "measured"` and
+the model hash; it has no synthetic fallback, so a missing runtime produces a
+skip, not a guess. The JSON from the synthetic harness carries
+`hailo_available` plus `source` per backend and `energy_source` per row; the
+figure prints a red warning when any row is synthetic. Never quote a synthetic
+row as a measurement. Provenance rules: `experiments/experimental_protocol_v2.md`.
 
 ## Control and safety
 
@@ -123,21 +138,25 @@ synthetic.
   in `MotorController` — a shared MQTT credential is not an interlock.
 - Commands are JSON, ≤ 512 bytes, axis-whitelisted, degree-bounded; retained
   messages are dropped so a command cannot replay on reconnect.
-- MQTT is TLS-only on 8883 (and 9001 for the app). No plaintext listener exists,
-  so there is no downgrade path.
+- MQTT is TLS-only on 8883 (and 9001 for the app) with two identities and
+  per-topic ACLs: `pi` writes state and reads commands, `phone` reads state and
+  writes commands, and neither can do the other's job. Anonymous clients are
+  rejected by the broker and by the bridge.
 - The dashboard refuses to start without `TELESCOPE_API_TOKEN`.
 - Findings and residual risks: `docs/security_report.md`.
 
 ## Status
 
 Working: solver math and error metric (tested), stepper kinematics (tested), PID
-(tested), MQTT validation (tested), benchmark and figure (runs), Docker stack
-(compose-validated, not deployed), OpenSCAD (syntax reviewed, **not rendered** —
-OpenSCAD is not installed on this machine).
+(tested), MQTT validation and **ACLs verified against a live broker** (9 tests),
+benchmark and figure (runs), Docker stack (mosquitto deployed and tested;
+dashboard/InfluxDB/Grafana compose-validated but not started), OpenSCAD (syntax
+reviewed, **not rendered** — OpenSCAD is not installed on this machine).
 
 Not yet done: detector training and the INT8 checkpoint, the 90-episode campaign,
-the Hailo HEF compile (needs the Dataflow Compiler on an x86 host), and the
-mobile app's typecheck (needs `npm install`).
+real measurements on the Pi (`run_real_measurements.py` exists and is untested
+against hardware), the Hailo HEF compile (needs the Dataflow Compiler on an x86
+host), and the mobile app's typecheck (needs `npm install`).
 
 ## License
 

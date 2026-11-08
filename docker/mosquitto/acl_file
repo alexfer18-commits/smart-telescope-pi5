@@ -1,0 +1,19 @@
+# Mosquitto ACL — per-client topic authorisation.
+#
+# Requested policy:
+#   pi    : readwrite telescope/pi/#
+#   phone : read telescope/status/#, write telescope/commands/#
+#
+# Two lines are added to those, because the requested policy alone cannot close
+# a control loop: the phone must be able to read the state the Pi publishes, and
+# the Pi must be able to read the commands the phone writes. Without them the
+# broker is secure and useless. Every other topic is denied by default.
+
+user pi
+topic readwrite telescope/pi/#
+topic write telescope/status/#
+topic read telescope/commands/#
+
+user phone
+topic read telescope/status/#
+topic write telescope/commands/#

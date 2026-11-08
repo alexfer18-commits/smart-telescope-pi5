@@ -44,7 +44,7 @@ export class TelescopeClient {
       rejectUnauthorized: true,
       reconnectPeriod: 3000,
     });
-    this.client.on("connect", () => this.client?.subscribe("telescope/state"));
+    this.client.on("connect", () => this.client?.subscribe("telescope/status/#"));
     this.client.on("message", (_topic, payload) => {
       try {
         onState(JSON.parse(payload.toString()) as TelescopeState);

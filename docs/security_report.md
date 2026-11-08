@@ -1,7 +1,12 @@
 # Security review
 
 Scope: `pi5-software/`, `mobile-app/`, `firmware/`, `docker/`, `scripts/`.
-Reviewed 2026-11-08.
+Reviewed 2026-11-08. Revised 2026-11-08 after the ACL work.
+
+**Status:** findings 1–5 are closed. Finding 5 is the one reported as critical #3
+in the repository handover ("one MQTT credential for every client"); it is now
+resolved by per-client identities and topic ACLs, verified against a running
+broker.
 
 **There is no firmware binary.** The Pi drives the A4988 carriers from Python
 through gpiozero; the only compiled artifact in the tree is Python bytecode.
@@ -19,7 +24,7 @@ review below is the substantive one.
 
 ### 1. Retained MQTT command replays on every reconnect — high
 
-`mqtt_bridge` subscribed to `telescope/cmd` and executed whatever arrived. A
+`mqtt_bridge` subscribed to the command topic and executed whatever arrived. A
 client that published with `retain=true` (one flag, no special access) would
 have that command stored by the broker and re-delivered on every reconnect — a
 slew command that fires unattended, hours later, at a mount nobody is watching.
@@ -41,7 +46,8 @@ learns it was refused. Covered by `test_altitude_soft_limit_is_enforced`.
 ### 3. MQTT password file world-readable — medium
 
 `deploy.sh` created `docker/mosquitto/passwd` with the container's default
-umask. Now `chmod 640` immediately after creation.
+umask. Now `scripts/setup_mqtt_auth.sh` creates it with mode `600` and the ACL
+file with `640`.
 
 ### 4. Token comparison was not constant-time — low
 
@@ -51,20 +57,49 @@ and the pattern is the one that gets copied.
 
 ## Open, with recommendation
 
-### 5. One MQTT credential for every client — high
+### 5. One MQTT credential for every client — high — **CLOSED**
 
-Every client authenticates as `telescope` and can publish anywhere. The phone
-holds the same secret as the Pi, so a stolen phone is full control of the mount.
+Every client authenticated as `telescope` and could publish anywhere. The phone
+held the same secret as the Pi, so a stolen phone was full control of the mount.
 
-*Recommendation:* add `acl_file` to `mosquitto.conf` with two users —
-`pi` (publish `telescope/state`, subscribe `telescope/cmd`) and `phone`
-(publish `telescope/cmd`, subscribe `telescope/state`) — and per-topic write
-rules. This is configuration, not code, and it should land before the first
-field session.
+Now there are two identities with disjoint powers, enforced by
+`docker/mosquitto/acl_file`:
+
+| Identity | May read | May write |
+|---|---|---|
+| `pi` | `telescope/commands/#`, `telescope/pi/#` | `telescope/status/#`, `telescope/pi/#` |
+| `phone` | `telescope/status/#` | `telescope/commands/#` |
+
+Topics were renamed to match: the Pi publishes `telescope/status/state` and
+rejections to `telescope/pi/rejected`; it reads commands from
+`telescope/commands/cmd`. Everything else is denied by default.
+
+Two ACL lines beyond the requested policy are required for the loop to function
+at all — the phone must read what the Pi writes, and the Pi must read what the
+phone writes. They are marked as such in `acl_file`; without them the broker is
+secure and unusable.
+
+The bridge now also refuses to construct without `MQTT_USER` and
+`MQTT_PASSWORD`, so a missing environment variable fails closed instead of
+silently producing an anonymous client.
+
+Verified against a live broker, 9/9 passing
+(`pi5-software/tests/test_mqtt_auth.py`):
+
+- anonymous connect rejected; wrong password rejected;
+- `pi` publishes state, `phone` receives it;
+- `phone` commands, `pi` receives it;
+- `pi` cannot forge a command;
+- `phone` cannot spoof telemetry.
+
+Residual: the broker container runs as its own user, so `passwd` must remain
+readable to it. Mode `600` works with Docker Desktop's bind mounts; on a Linux
+host where the container user differs from the file owner, use `640` with a
+matching group rather than world-readable.
 
 ### 6. No audit trail of accepted commands — medium
 
-Rejected commands are published to `telescope/rejected`, but accepted ones are
+Rejected commands are published to `telescope/pi/rejected`, but accepted ones are
 not logged with the publishing client id. When a mount moves unexpectedly, the
 first question is "who told it to".
 

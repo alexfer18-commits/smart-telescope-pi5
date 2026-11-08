@@ -11,7 +11,7 @@
                         │ 8883 mqtt · 9001 ws · ACL    │
                         └──────┬───────────────┬───────┘
                                │               │
-                  telescope/state        telescope/cmd
+                telescope/status/state    telescope/commands/cmd
                                │               │
         ┌──────────────────────▼───────────────▼─────────────────────┐
         │ Raspberry Pi 5, 8 GB — Raspberry Pi OS 64-bit              │
@@ -75,6 +75,51 @@ claim the experiment tests.
 | Broker unreachable | publish error logged | control loop unaffected |
 | Step loss | position drifts | serial protocol ACKs each step (MCU path) |
 | Mount limit exceeded | move refused | soft limits in `MotorController` |
+
+## Hailo-8L Compilation Constraint
+
+The Hailo-8L does not run ONNX. It runs a **HEF** (Hailo Executable Format), a
+pre-compiled binary produced by the **Hailo Dataflow Compiler (DFC)**, and the
+DFC does not run on the Pi.
+
+This is an architectural constraint, not a packaging inconvenience:
+
+| Stage | Where it runs | Why |
+|---|---|---|
+| Train the detector | GPU host | PyTorch/TensorFlow |
+| Export and quantize to INT8 ONNX | any x86 or arm64 host | ONNX Runtime |
+| Parse, optimize, compile to `.hef` | **x86_64 Linux only** | DFC is distributed as x86 binaries; no arm64 build exists |
+| Execute the `.hef` | Raspberry Pi 5 + Hailo-8L | HailoRT runtime only |
+
+So the Pi is an *inference* target, never a compiler target. `HailoRT` on the Pi
+loads a `.hef` and schedules it; if you hand it an ONNX file it has nothing to
+do with it. Consequences for the study:
+
+- **Condition E2 cannot be built on the instrument alone.** It needs an x86
+  machine in the loop at least once, before the experimental campaign starts.
+- **The compile is a one-time cost per model variant**, not per episode. Two
+  backbones means two compiles, not ninety.
+- **Operator coverage must be checked before the campaign.** Any layer the DFC
+  cannot place on the NPU falls back to the Pi's CPU, and a partially offloaded
+  graph silently destroys the latency comparison. `benchmarks/compare_inference.py`
+  records `hailo_available` in its JSON for exactly this reason.
+
+Three ways to satisfy the constraint, in ascending order of cost:
+
+1. **x86 VM on an Apple Silicon or ARM laptop** — Parallels, UTM, or VMware
+   Fusion running Ubuntu 22.04 x86_64. Sufficient: the DFC needs CPU and RAM,
+   not a GPU. Slowest compile of the three, and the least reproducible when the
+   VM is rebuilt, but it costs nothing new.
+2. **Remote x86 server** — a university lab machine or a cloud instance, reached
+   over SSH. Best throughput and the easiest to document for reproducibility;
+   requires a data-transfer agreement for the model and the calibration frames.
+3. **Dedicated x86 workstation** — no dependency on anyone else's hardware.
+   Justified if the Hailo condition becomes a permanent part of the
+   instrument rather than a one-off experiment.
+
+Until one of these exists, E2 is documented but not measured. The benchmark
+reports `hailo_available: false` rather than inventing a number, and the
+proposal states the constraint explicitly rather than discovering it in month 4.
 
 ## Why the camera is not the main telescope
 

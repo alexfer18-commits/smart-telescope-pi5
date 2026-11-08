@@ -1,14 +1,16 @@
 """MQTT bridge: publishes telescope state, accepts validated commands.
 
-Topics
-------
-``telescope/state``   JSON, published every second (retained).
-``telescope/cmd``     JSON commands: {"cmd": "move", "axis": "az", "deg": 1.5}
-                      {"cmd": "stop"} | {"cmd": "calibrate"}
+Topics (matching docker/mosquitto/acl_file)
+------------------------------------------
+``telescope/status/state``    JSON, published every second (retained).
+``telescope/commands/cmd``    JSON commands: {"cmd": "move", "axis": "az", "deg": 1.5}
+                              {"cmd": "stop"} | {"cmd": "calibrate"}
+``telescope/pi/rejected``     JSON, why a command was refused.
 
 The bridge never trusts a command: axis is whitelisted, degrees are bounded,
-and payloads over 512 bytes are dropped. Credentials come from the environment
-and are never logged.
+and payloads over 512 bytes are dropped. Credentials are mandatory — a bridge
+with no identity is refused at construction, because a broker that accepts
+anonymous clients is one bad config edit away from accepting anonymous slews.
 """
 
 from __future__ import annotations
@@ -21,8 +23,9 @@ from typing import Callable
 
 import paho.mqtt.client as mqtt
 
-STATE_TOPIC = "telescope/state"
-CMD_TOPIC = "telescope/cmd"
+STATE_TOPIC = "telescope/status/state"
+CMD_TOPIC = "telescope/commands/cmd"
+REJECT_TOPIC = "telescope/pi/rejected"
 MAX_PAYLOAD = 512
 MAX_SLEW_DEG = 180.0
 VALID_AXES = {"az", "alt"}
@@ -60,13 +63,19 @@ class MqttBridge:
         self._handle = command_handler
         self._period = period_s
         self._stop = threading.Event()
+
+        user = os.environ.get("MQTT_USER")
+        password = os.environ.get("MQTT_PASSWORD")
+        if not user or not password:
+            raise RuntimeError(
+                "MQTT_USER and MQTT_PASSWORD are required; refusing to build an "
+                "unauthenticated control client")
+
         self._client = mqtt.Client(
             mqtt.CallbackAPIVersion.VERSION2, client_id="telescope-pi5")
         if tls:
             self._client.tls_set()          # system CA store; broker cert must match host
-        user = os.environ.get("MQTT_USER")
-        if user:
-            self._client.username_pw_set(user, os.environ.get("MQTT_PASSWORD"))
+        self._client.username_pw_set(user, password)
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
         self._client.connect(host or os.environ.get("MQTT_HOST", "localhost"),
@@ -98,7 +107,7 @@ class MqttBridge:
         try:
             self._handle(parse_command(msg.payload))
         except CommandRejected as exc:
-            client.publish("telescope/rejected", json.dumps({"reason": str(exc)}), qos=1)
+            client.publish(REJECT_TOPIC, json.dumps({"reason": str(exc)}), qos=1)
 
     def stop(self) -> None:
         self._stop.set()

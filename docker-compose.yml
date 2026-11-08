@@ -8,6 +8,7 @@ services:
       - "9001:9001"     # MQTT over WebSocket (mobile app)
     volumes:
       - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./docker/mosquitto/acl_file:/mosquitto/config/acl_file:ro
       - ./docker/mosquitto/certs:/mosquitto/certs:ro
       - ./docker/mosquitto/passwd:/mosquitto/passwd:ro
       - mosquitto-data:/mosquitto/data
@@ -28,8 +29,8 @@ services:
       TELESCOPE_API_TOKEN: ${TELESCOPE_API_TOKEN:?set TELESCOPE_API_TOKEN in .env}
       MQTT_HOST: mosquitto
       MQTT_PORT: "8883"
-      MQTT_USER: ${MQTT_USER:-telescope}
-      MQTT_PASSWORD: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}
+      MQTT_USER: ${MQTT_PI_USER:-pi}
+      MQTT_PASSWORD: ${MQTT_PI_PASSWORD:?set MQTT_PI_PASSWORD in .env}
     ports:
       - "8443:8443"
     volumes:

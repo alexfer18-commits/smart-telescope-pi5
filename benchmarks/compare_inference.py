@@ -70,7 +70,7 @@ def _lognormal_samples(median_ms: float, sigma: float, n: int,
     return median_ms * np.exp(rng.normal(0.0, sigma, n))
 
 
-def _measure_onnx(model: Path, n: int, rng: np.random.Generator) -> np.ndarray | None:
+def measure_onnx(model: Path, n: int, rng: np.random.Generator) -> np.ndarray | None:
     try:
         import onnxruntime as ort
     except ImportError:
@@ -90,7 +90,7 @@ def _measure_onnx(model: Path, n: int, rng: np.random.Generator) -> np.ndarray |
     return samples
 
 
-def _measure_tflite(model: Path, n: int, rng: np.random.Generator) -> np.ndarray | None:
+def measure_tflite(model: Path, n: int, rng: np.random.Generator) -> np.ndarray | None:
     try:
         from tflite_runtime.interpreter import Interpreter  # type: ignore
     except ImportError:
@@ -113,7 +113,7 @@ def _measure_tflite(model: Path, n: int, rng: np.random.Generator) -> np.ndarray
     return samples
 
 
-def _measure_hailo(model: Path, n: int, rng: np.random.Generator) -> np.ndarray | None:
+def measure_hailo(model: Path, n: int, rng: np.random.Generator) -> np.ndarray | None:
     try:
         from hailo_platform import VDevice  # type: ignore
     except ImportError:
@@ -149,11 +149,11 @@ def benchmark(model: Path | None, n: int, runtime: str,
     measured: dict[str, np.ndarray | None] = {"cpu_tflite": None, "cpu_onnx": None,
                                               "hailo8l": None}
     if model is not None and runtime in {"auto", "tflite"}:
-        measured["cpu_tflite"] = _measure_tflite(model, n, rng)
+        measured["cpu_tflite"] = measure_tflite(model, n, rng)
     if model is not None and runtime in {"auto", "onnx"}:
-        measured["cpu_onnx"] = _measure_onnx(model, n, rng)
+        measured["cpu_onnx"] = measure_onnx(model, n, rng)
     if model is not None and runtime in {"auto", "hailo"}:
-        measured["hailo8l"] = _measure_hailo(model, n, rng)
+        measured["hailo8l"] = measure_hailo(model, n, rng)
 
     energy = EnergyMeter(ina219)
 
@@ -215,6 +215,20 @@ class EnergyMeter:
         if self._ina is not None:
             return float(self._ina.power()) / 1000.0
         return max_watts * (0.45 + 0.55 * fraction)   # idle floor + load share
+
+
+def hailo_runtime_available() -> bool:
+    """True only if HailoRT is importable on this host.
+
+    The HEF itself is compiled on an x86_64 host with the Hailo Dataflow
+    Compiler; this only answers whether the *runtime* that executes it exists
+    here. See docs/architecture.md, "Hailo-8L Compilation Constraint".
+    """
+    try:
+        import hailo_platform  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def crossover_utilisation(results: list[Result], sessions_per_month: int = 8,
@@ -293,11 +307,18 @@ def main() -> None:
     args = parser.parse_args()
 
     results = benchmark(args.model, args.episodes, args.runtime, args.ina219)
+    hailo_ok = hailo_runtime_available()
     payload = {
         "generated_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "host": {"platform": platform.platform(), "machine": platform.machine(),
                  "python": platform.python_version()},
+        "hailo_available": hailo_ok,
         "assumptions": {
+            "hailo_note": ("HailoRT detected; E2 numbers may be measured"
+                           if hailo_ok else
+                           "HailoRT not detected: E2 rows are modelled, not "
+                           "measured. A .hef must be compiled on an x86_64 host "
+                           "before E2 can run."),
             "cloud_usd_per_inference": CLOUD_USD_PER_INFERENCE,
             "capex_usd": CAPEX_USD,
             "amortise_months": AMORTISE_MONTHS,
