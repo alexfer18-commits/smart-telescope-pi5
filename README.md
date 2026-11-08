@@ -13,12 +13,16 @@ cheaper per inference.** Both halves of that sentence are measured, not assumed.
 
 ```
 smart-telescope-pi5/
-├── hardware/            OpenSCAD mounts + BOM
+├── hardware/            OpenSCAD mounts, BOM, assembly guide
 │   ├── params.scad              shared dimensions (Pi 5, Camera 3, HAT, NEMA 17)
-│   ├── pi5_camera_mount.scad    tube clamp, Pi tray, camera bracket
-│   ├── nema17_coupling.scad     motor bracket + rigid 5→5 mm coupler
+│   ├── pi5_camera_mount.scad    4 × M4 tube clamp, vented Pi tray, camera bracket
+│   ├── nema17_coupling.scad     motor bracket (ribbed base) + 5→5 mm coupler
+│   ├── az_axis_assembly.scad    azimuth: base, tower, coupler, thrust ring, platter
+│   ├── alt_axis_assembly.scad   altitude: fork, 8 mm shaft, bearings, saddle
 │   ├── hailo_hat_mount.scad     HAT+ standoffs
-│   └── BOM.md                   $258 without accelerator, $328 with
+│   ├── ASSEMBLY_GUIDE.md        7 steps, torque table, Vref, GPIO → A4988 wiring
+│   ├── SHOPPING_LIST.md         prioritised, $73 critical path
+│   └── BOM.md                   $278 without accelerator, $348 with
 ├── firmware/            optional MCU step-pulse bridge
 │   ├── stepper_bridge.ino       line protocol, per-step acknowledgement
 │   └── README.md                A4988 current limit, microstepping, protocol
@@ -35,10 +39,11 @@ smart-telescope-pi5/
 ├── benchmarks/
 │   ├── compare_inference.py     synthetic harness → data/ + figures/
 │   └── run_real_measurements.py measured latency/energy on the Pi (no fallback)
-├── experiments/         protocol v2 + measurement plan + episode schema
+├── experiments/         protocol v2/v3, simulator, ANOVA, workbook, measurement plan
+├── figures/             benchmark comparison, assembly plates, ANOVA v3
 ├── mobile-app/          Expo console: connect, status, history
 ├── docker/              mosquitto (TLS + ACLs), dashboard, InfluxDB, Grafana
-├── docs/                architecture.md, security_report.md
+├── docs/                architecture.md, security_report.md, mechanical_analysis.md
 └── scripts/             deploy.sh · gen_certs.sh · setup_mqtt_auth.sh
 ```
 
@@ -62,13 +67,38 @@ Compilation Constraint".
 | 50 mm guidescope, 200 mm FL | 1 | 55 |
 | INA219 shunt | 1 | 5 |
 
-**≈ $258 without the accelerator, ≈ $328 with it.** Full detail and the two
-corrections to the original sketch (the 12 V rail cannot feed the Pi; the
-guidescope is what makes the error measurable) are in `hardware/BOM.md`.
+**≈ $278 without the accelerator, ≈ $348 with it**; **$183 left to buy** ($253
+with the HAT), because the Pi 5 and one NEMA 17 are already owned.
+`hardware/SHOPPING_LIST.md` sequences the order, `hardware/BOM.md` carries the
+supplier links, and the two corrections to the original sketch (the 12 V rail
+cannot feed the Pi; the guidescope is what makes the error measurable) are in
+the BOM.
 
 The Hailo-8L line also implies a host that is not in this table: compiling the
 HEF needs an x86_64 Linux machine (VM, remote server, or workstation). Budget
 that separately — see `docs/architecture.md`.
+
+## Mechanical design
+
+`docs/mechanical_analysis.md` works the numbers before anything is printed:
+
+- **Torque.** An unbalanced 2.5 kg tube on a 20 cm lever needs 4.9 N·m; the
+  NEMA 17 gives 0.28 N·m at the 1.2 A the A4988 can take. Direct drive is short
+  by 17×. Balanced, the same drive has 6× margin and tolerates ±8 mm of
+  centroid offset — so the build balances the tube instead of buying a gearbox.
+- **Resolution.** 1.8°/16 = 6.75 arcmin/step against a 10 arcmin target: fits,
+  but spends 68 % of the budget. The real limiter is the ±5 % step-angle error
+  (±5.4 arcmin), which microstepping does not fix and a 5:1 belt does.
+- **Structure.** 2020 extrusion deflects 0.12 mm over 200 mm (3.1 arcmin);
+  printed PETG over the same span deflects 2.45 mm (63 arcmin). Long cantilevers
+  are aluminium, short ones can be printed.
+
+`hardware/ASSEMBLY_GUIDE.md` is the build order (Vref before the motor is
+connected, GND before VMOT, torque per fastener) and
+`figures/assembly_exploded.png` / `figures/assembly_side_view.png` are drawn
+from the same dimensions as the `.scad` files by `figures/assembly_diagrams.py`.
+The `.scad` files are **syntax-checked but not rendered**: OpenSCAD is not
+installed on this machine.
 
 ## Install
 
@@ -130,7 +160,11 @@ the model hash; it has no synthetic fallback, so a missing runtime produces a
 skip, not a guess. The JSON from the synthetic harness carries
 `hailo_available` plus `source` per backend and `energy_source` per row; the
 figure prints a red warning when any row is synthetic. Never quote a synthetic
-row as a measurement. Provenance rules: `experiments/experimental_protocol_v2.md`.
+row as a measurement. Provenance rules: `experiments/experimental_protocol_v2.md`
+for the benchmark, `experiments/experimental_protocol_v3.md` for the 3 × 3
+pointing experiment (whose 270 rows are all synthetic:
+`data/simulated_results_v3.csv` → `figures/anova_results_v3.pdf` and
+`experiment_results_v3.xlsx`).
 
 ## Control and safety
 
@@ -151,12 +185,15 @@ Working: solver math and error metric (tested), stepper kinematics (tested), PID
 (tested), MQTT validation and **ACLs verified against a live broker** (9 tests),
 benchmark and figure (runs), Docker stack (mosquitto deployed and tested;
 dashboard/InfluxDB/Grafana compose-validated but not started), OpenSCAD (syntax
-reviewed, **not rendered** — OpenSCAD is not installed on this machine).
+reviewed, **not rendered** — OpenSCAD is not installed on this machine), the v3
+statistics pipeline (`simulate_v3.py` → `analyze_v3.py` → `build_excel_v3.py`,
+**synthetic data only**).
 
 Not yet done: detector training and the INT8 checkpoint, the 90-episode campaign,
 real measurements on the Pi (`run_real_measurements.py` exists and is untested
 against hardware), the Hailo HEF compile (needs the Dataflow Compiler on an x86
-host), and the mobile app's typecheck (needs `npm install`).
+host), the mobile app's typecheck (needs `npm install`), and the physical build —
+no part has been printed or bought.
 
 ## License
 
