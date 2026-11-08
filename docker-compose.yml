@@ -1,0 +1,82 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: telescope-mqtt
+    restart: unless-stopped
+    ports:
+      - "8883:8883"     # MQTT over TLS
+      - "9001:9001"     # MQTT over WebSocket (mobile app)
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./docker/mosquitto/certs:/mosquitto/certs:ro
+      - ./docker/mosquitto/passwd:/mosquitto/passwd:ro
+      - mosquitto-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 8883 --cafile /mosquitto/certs/ca.crt -t '$$SYS/broker/uptime' -C 1 -W 3 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks: [telescope]
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard/Dockerfile
+    container_name: telescope-dashboard
+    restart: unless-stopped
+    environment:
+      TELESCOPE_API_TOKEN: ${TELESCOPE_API_TOKEN:?set TELESCOPE_API_TOKEN in .env}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "8883"
+      MQTT_USER: ${MQTT_USER:-telescope}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?set MQTT_PASSWORD in .env}
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./docker/dashboard/certs:/certs:ro
+    command: >
+      uvicorn dashboard:app --host 0.0.0.0 --port 8443
+      --ssl-keyfile /certs/server.key --ssl-certfile /certs/server.crt
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks: [telescope]
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: telescope-influx
+    restart: unless-stopped
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUX_USER:-telescope}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUX_PASSWORD:?set INFLUX_PASSWORD in .env}
+      DOCKER_INFLUXDB_INIT_ORG: telescope
+      DOCKER_INFLUXDB_INIT_BUCKET: pointing
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:?set INFLUX_TOKEN in .env}
+    volumes:
+      - influx-data:/var/lib/influxdb2
+    networks: [telescope]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: telescope-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on: [influxdb]
+    networks: [telescope]
+
+volumes:
+  mosquitto-data:
+  influx-data:
+  grafana-data:
+
+networks:
+  telescope:
+    driver: bridge
