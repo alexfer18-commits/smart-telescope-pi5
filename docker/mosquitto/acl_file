@@ -13,6 +13,8 @@ user pi
 topic readwrite telescope/pi/#
 topic write telescope/status/#
 topic read telescope/commands/#
+# Broker statistics, used by the container healthcheck and by monitoring.
+topic read $SYS/#
 
 user phone
 topic read telescope/status/#

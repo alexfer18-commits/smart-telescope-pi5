@@ -3,6 +3,10 @@ services:
     image: eclipse-mosquitto:2.0
     container_name: telescope-mqtt
     restart: unless-stopped
+    environment:
+      # Needed only by the healthcheck below, which must authenticate now that
+      # anonymous connections are refused.
+      MQTT_PI_PASSWORD: ${MQTT_PI_PASSWORD:?set MQTT_PI_PASSWORD in .env}
     ports:
       - "8883:8883"     # MQTT over TLS
       - "9001:9001"     # MQTT over WebSocket (mobile app)
@@ -13,7 +17,7 @@ services:
       - ./docker/mosquitto/passwd:/mosquitto/passwd:ro
       - mosquitto-data:/mosquitto/data
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 8883 --cafile /mosquitto/certs/ca.crt -t '$$SYS/broker/uptime' -C 1 -W 3 || exit 1"]
+      test: ["CMD-SHELL", "mosquitto_sub -h localhost -p 8883 --cafile /mosquitto/certs/ca.crt -u pi -P \"$$MQTT_PI_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
